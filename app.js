@@ -11,6 +11,10 @@ let brand = { ...DEFAULTS }, state = { exams: [], attempts: [] }, editingId = nu
 
 // ---------- أيقونات ----------
 const IC = {
+  flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/>',
+  arrowRight: '<path d="M5 12h14M12 5l7 7-7 7"/>',
+  arrowLeft: '<path d="M19 12H5M12 19l-7-7 7-7"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   grid: '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>',
   file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8M8 9h2"/>',
   chart: '<path d="M3 3v18h18"/><path d="M8 17v-6M13 17V7M18 17v-3"/>',
@@ -125,32 +129,107 @@ $('#studentEntryForm').addEventListener('submit', async e => {
 });
 
 function startExam(d, name) {
-  const key = 'ans_' + d.attempt_id; let saved = [];
-  try { saved = JSON.parse(localStorage.getItem(key) || '[]') } catch { }
+  const key = 'ans_' + d.attempt_id;
+  let saved = { a: [], f: [] };
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || 'null');
+    if (Array.isArray(raw)) saved.a = raw;
+    else if (raw) saved = raw;
+  } catch { }
+
   runner = {
     id: d.attempt_id, token: d.token, name, key, qs: d.questions,
-    answers: d.questions.map((_, i) => Number.isInteger(saved[i]) ? saved[i] : null),
+    idx: 0,
+    answers: d.questions.map((_, i) => Number.isInteger(saved.a?.[i]) ? saved.a[i] : null),
+    flagged: d.questions.map((_, i) => Boolean(saved.f?.[i])),
     end: Date.now() + d.remaining_seconds * 1000, submitting: false, retryAt: 0, timer: null
   };
+
   show('studentExamArea');
   $('#runWrap').classList.remove('hidden'); $('#studentResult').classList.add('hidden');
   $('#activeExamGrade').textContent = d.exam.grade; $('#activeExamTitle').textContent = d.exam.title;
-  $('#activeQuestionsList').innerHTML = d.questions.map((q, i) => `
-    <div class="student-q q-card${runner.answers[i] !== null ? ' answered' : ''}" id="qc${i}">
-      <h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>
-      ${q.options.map((o, j) => `<label class="student-option"><input type="radio" name="q${i}" value="${j}" ${runner.answers[i] === j ? 'checked' : ''}><span class="opt-letter">${LETTERS[j]}</span><span>${esc(o)}</span></label>`).join('')}
-    </div>`).join('');
-  updateProgress(); tick(); runner.timer = setInterval(tick, 1000);
+
+  renderQuestionNav();
+  renderCurrentQuestion();
+  updateProgress();
+  tick();
+  runner.timer = setInterval(tick, 1000);
   window.onbeforeunload = e => { e.preventDefault(); e.returnValue = '' };
   window.scrollTo(0, 0);
   if (d.resumed) toast('تم استئناف محاولتك من حيث توقفت');
 }
 
-$('#activeQuestionsList').addEventListener('change', e => {
+function saveRunnerLocal() {
+  if (!runner) return;
+  localStorage.setItem(runner.key, JSON.stringify({ a: runner.answers, f: runner.flagged }));
+}
+
+function renderQuestionNav() {
+  $('#qNavGrid').innerHTML = runner.qs.map((_, i) => {
+    const cls = [
+      'q-pill',
+      runner.answers[i] !== null ? 'answered' : '',
+      runner.flagged[i] ? 'flagged' : '',
+      i === runner.idx ? 'current' : ''
+    ].filter(Boolean).join(' ');
+    return `<button type="button" class="${cls}" data-goto="${i}">${i + 1}</button>`;
+  }).join('');
+}
+
+function renderCurrentQuestion() {
+  const i = runner.idx, q = runner.qs[i], isFlagged = runner.flagged[i];
+  $('#singleQuestionBox').innerHTML = `
+    <div class="student-q single-q-card ${runner.answers[i] !== null ? 'answered' : ''}">
+      <div>
+        ${isFlagged ? `<div class="q-badge-flagged">${ico('flag')} مؤجل للمراجعة</div>` : ''}
+        <h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>
+      </div>
+      <div>
+        ${q.options.map((o, j) => `
+          <label class="student-option">
+            <input type="radio" name="currQ" value="${j}" ${runner.answers[i] === j ? 'checked' : ''}>
+            <span class="opt-letter">${LETTERS[j]}</span>
+            <span>${esc(o)}</span>
+          </label>`).join('')}
+      </div>
+    </div>`;
+
+  $('#prevQBtn').disabled = i === 0;
+  $('#nextQBtn').disabled = i === runner.qs.length - 1;
+  const fBtn = $('#flagQBtn');
+  fBtn.classList.toggle('active', isFlagged);
+  fBtn.querySelector('span').textContent = isFlagged ? 'إلغاء التأجيل' : 'تأجيل السؤال';
+  renderQuestionNav();
+}
+
+$('#singleQuestionBox').addEventListener('change', e => {
   const r = e.target; if (!runner || r.type !== 'radio') return;
-  const i = Number(r.name.slice(1)); runner.answers[i] = Number(r.value);
-  localStorage.setItem(runner.key, JSON.stringify(runner.answers));
-  $('#qc' + i).classList.add('answered'); updateProgress();
+  runner.answers[runner.idx] = Number(r.value);
+  saveRunnerLocal();
+  $('.single-q-card').classList.add('answered');
+  renderQuestionNav();
+  updateProgress();
+});
+
+$('#qNavGrid').addEventListener('click', e => {
+  const b = e.target.closest('[data-goto]'); if (!b || !runner) return;
+  runner.idx = Number(b.dataset.goto);
+  renderCurrentQuestion();
+});
+
+$('#prevQBtn').onclick = () => { if (runner && runner.idx > 0) { runner.idx--; renderCurrentQuestion(); } };
+$('#nextQBtn').onclick = () => { if (runner && runner.idx < runner.qs.length - 1) { runner.idx++; renderCurrentQuestion(); } };
+$('#flagQBtn').onclick = () => {
+  if (!runner) return;
+  runner.flagged[runner.idx] = !runner.flagged[runner.idx];
+  saveRunnerLocal();
+  renderCurrentQuestion();
+};
+
+document.addEventListener('keydown', e => {
+  if (!runner || $('#studentExamArea').classList.contains('hidden')) return;
+  if (e.key === 'ArrowLeft') $('#nextQBtn').click();
+  if (e.key === 'ArrowRight') $('#prevQBtn').click();
 });
 
 function updateProgress() {
@@ -171,7 +250,12 @@ $('#submitStudentExam').onclick = () => submitExam(false);
 async function submitExam(auto) {
   if (!runner || runner.submitting) return;
   const un = runner.answers.filter(a => a === null).length;
-  if (!auto && !confirm(un ? `لديك ${un} سؤال بدون إجابة. هل تريد التسليم؟` : 'هل أنت متأكد من تسليم إجاباتك؟')) return;
+  const fl = runner.flagged.filter(Boolean).length;
+  let warn = [];
+  if (un) warn.push(`${un} سؤال بدون إجابة`);
+  if (fl) warn.push(`${fl} سؤال مؤجل للمراجعة`);
+  if (!auto && !confirm(warn.length ? `تنبيه: لديك ${warn.join(' و ')}. هل تريد التسليم النهائي؟` : 'هل أنت متأكد من تسليم إجاباتك؟')) return;
+
   runner.submitting = true; $('#submitStudentExam').disabled = true;
   const { data, error } = await supabaseClient.rpc('submit_attempt', { p_attempt_id: runner.id, p_token: runner.token, p_answers: runner.answers });
   if (error || !data || data.error) {
@@ -179,14 +263,32 @@ async function submitExam(auto) {
     toast('تعذّر إرسال الإجابات، تحقق من الاتصال وحاول مرة أخرى'); return;
   }
   clearInterval(runner.timer); localStorage.removeItem(runner.key); window.onbeforeunload = null;
-  showResult(data, runner.name); runner = null;
+  const qsSnapshot = runner.qs;
+  showResult(data, runner.name, qsSnapshot); runner = null;
 }
 
-function showResult(r, name) {
+function showResult(r, name, qs) {
   $('#runWrap').classList.add('hidden');
   const box = $('#studentResult'); box.classList.remove('hidden'); window.scrollTo(0, 0);
   const p = r.percent, C = 2 * Math.PI * 54;
   const [msg, cls] = p >= 90 ? ['ممتاز، أداء رائع!', 'great'] : p >= 75 ? ['جيد جداً، استمر!', 'good'] : p >= 50 ? ['جيد، ويمكنك التحسّن أكثر', 'ok'] : ['تحتاج إلى مزيد من المراجعة', 'low'];
+
+  let reviewHtml = '';
+  if (r.show_answers && Array.isArray(r.review) && qs) {
+    reviewHtml = `<div class="review-list"><h3>مراجعة إجاباتك</h3>` + qs.map((q, i) => {
+      const rev = r.review[i] || {};
+      return `<div class="student-q">
+        <h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>
+        ${q.options.map((o, j) => {
+          const isCorr = j === rev.correct, isUser = j === rev.chosen;
+          const optCls = isCorr ? 'correct' : (isUser ? 'wrong' : '');
+          const badge = isCorr ? `<em>${ico('check')} الصحيحة</em>` : (isUser ? `<em>${ico('x')} إجابتك</em>` : '');
+          return `<div class="student-option ${optCls}"><span class="opt-letter">${LETTERS[j]}</span><span>${esc(o)}</span>${badge}</div>`;
+        }).join('')}
+      </div>`;
+    }).join('') + `</div>`;
+  }
+
   box.innerHTML = `
     <div class="result-card ${cls}">
       <div class="ring"><svg viewBox="0 0 120 120"><circle class="ring-bg" cx="60" cy="60" r="54"/><circle class="ring-fg" cx="60" cy="60" r="54" stroke-dasharray="${C}" stroke-dashoffset="${C}"/></svg><strong dir="ltr">${p}%</strong></div>
@@ -195,6 +297,7 @@ function showResult(r, name) {
       ${r.expired ? '<p class="note-bad">انتهى الوقت قبل التسليم</p>' : ''}
       <p>شكراً ${esc(name.split(' ')[0])}، وصلت نتيجتك إلى ${esc(brand.teacher_name || 'المدرّس')}.</p>
       <button class="btn btn-outline" onclick="location.reload()">العودة للصفحة الرئيسية</button>
+      ${reviewHtml}
     </div>`;
   setTimeout(() => { const f = $('.ring-fg'); if (f) f.style.strokeDashoffset = C * (1 - p / 100) }, 60);
 }
@@ -214,12 +317,13 @@ function go(view) {
 }
 
 async function loadData() {
-  const [ex, at] = await Promise.all([
+  const [ex, at] = await Promise.all(
     supabaseClient.from('exams').select('*, questions(*)'),
     supabaseClient.from('attempts').select('*, exams(title)')
   ]);
   if (ex.error || at.error) toast('تعذّر تحميل البيانات، تحقق من تنفيذ سكربت SQL');
   state.exams = (ex.data || []).map(e => ({
+    show_answers: Boolean(e.show_answers),
     id: e.id, title: e.title, grade: e.grade, duration: e.duration, code: e.code, status: e.status,
     max_attempts: e.max_attempts ?? 1, opens_at: e.opens_at, closes_at: e.closes_at,
     shuffle_questions: e.shuffle_questions !== false, shuffle_options: e.shuffle_options !== false,
@@ -227,6 +331,7 @@ async function loadData() {
       .map(q => ({ id: q.id, text: q.question_text, options: q.options, correct: q.correct_index }))
   }));
   state.attempts = (at.data || []).map(a => ({
+    layout: a.layout, answers: a.answers,
     examId: a.exam_id, student: a.student_name, examTitle: a.exams?.title || 'امتحان محذوف',
     score: a.score, total: a.total, percent: a.percent, date: a.submitted_at || a.created_at || a.started_at, status: a.status || 'submitted'
   })).sort((x, y) => new Date(y.date) - new Date(x.date));
@@ -275,11 +380,102 @@ function renderExamCards() {
 
 const STATUS_TXT = { submitted: 'مسلَّم', expired: 'انتهى الوقت', in_progress: 'قيد الحل' };
 function renderResults() {
-  const rows = state.attempts.map(a => [esc(a.student), esc(a.examTitle), ltr(`${a.score} / ${a.total}`),
-    `<span class="tag ${a.percent >= 50 ? 'live' : 'bad'}">${ltr(a.percent + '%')}</span>`, ltr(fmtDate(a.date)), esc(STATUS_TXT[a.status] || a.status)]);
-  $('#resultsTable').innerHTML = rows.length ? table(['اسم الطالب', 'الامتحان', 'الدرجة', 'النسبة', 'وقت التسليم', 'الحالة'], rows) : '<div class="empty">لا توجد نتائج مسجلة حتى الآن.</div>';
+  // تحديث قائمة فلتر الامتحانات
+  const sel = $('#filterExam'), curVal = sel.value;
+  sel.innerHTML = '<option value="">كل الامتحانات</option>' + state.exams.map(e => `<option value="${esc(e.id)}">${esc(e.title)}</option>`).join('');
+  sel.value = curVal;
+
+  const q = ($('#searchStudent')?.value || '').trim().toLowerCase();
+  const exId = sel.value;
+  const st = $('#filterStatus')?.value || '';
+
+  const filtered = state.attempts.filter(a => {
+    if (q && !a.student.toLowerCase().includes(q)) return false;
+    if (exId && !sameId(a.examId, exId)) return false;
+    if (st && a.status !== st) return false;
+    return true;
+  });
+
+  const rows = filtered.map(a => [
+    esc(a.student), esc(a.examTitle), ltr(`${a.score} / ${a.total}`),
+    `<span class="tag ${a.percent >= 50 ? 'live' : 'bad'}">${ltr(a.percent + '%')}</span>`,
+    ltr(fmtDate(a.date)), esc(STATUS_TXT[a.status] || a.status)
+  ]);
+  $('#resultsTable').innerHTML = rows.length
+    ? table(['اسم الطالب', 'الامتحان', 'الدرجة', 'النسبة', 'وقت التسليم', 'الحالة'], rows)
+    : '<div class="empty">لا توجد نتائج مطابقة لخيارات البحث.</div>';
 }
 
+['#searchStudent', '#filterExam', '#filterStatus'].forEach(s => $(s)?.addEventListener('input', renderResults));
+
+// استيراد الأسئلة النصي
+$('#openBulkImport').onclick = () => { $('#bulkText').value = ''; $('#importModal').classList.add('show'); };
+$('#runBulkImport').onclick = () => {
+  const raw = $('#bulkText').value.trim();
+  if (!raw) { toast('ألصق الأسئلة أولاً'); return; }
+  const blocks = raw.split(/\n\s*\n/);
+  let added = 0;
+  blocks.forEach(b => {
+    const lines = b.split('\n').map(l => l.trim()).filter(Boolean);
+    if (lines.length < 5) return;
+    const text = lines[0];
+    let correct = 0;
+    const options = lines.slice(1, 5).map((opt, idx) => {
+      if (opt.startsWith('*')) { correct = idx; return opt.slice(1).trim(); }
+      return opt;
+    });
+    addQuestion({ text, options, correct });
+    added++;
+  });
+  if (!added) { toast('تأكد من كتابة نص السؤال وتحته 4 خيارات'); return; }
+  // حذف الحقول الفارغة الافتراضية إن وجدت
+  $$('.question-editor').forEach(el => {
+    if ($$('.question-editor').length > added && !el.querySelector('.q-text').value.trim()) el.remove();
+  });
+  renumber();
+  $('#importModal').classList.remove('show');
+  toast(`تم استيراد ${added} سؤال بنجاح`);
+};
+
+// تحليل صعوبة الأسئلة
+$('#openAnalyticsBtn').onclick = () => {
+  const sel = $('#analyticsExamSelect');
+  if (!state.exams.length) { toast('لا توجد امتحانات لتحليلها'); return; }
+  sel.innerHTML = state.exams.map(e => `<option value="${esc(e.id)}">${esc(e.title)}</option>`).join('');
+  renderAnalytics();
+  $('#analyticsModal').classList.add('show');
+};
+$('#analyticsExamSelect').onchange = renderAnalytics;
+
+function renderAnalytics() {
+  const ex = state.exams.find(x => sameId(x.id, $('#analyticsExamSelect').value));
+  if (!ex) return;
+  const subs = state.attempts.filter(a => sameId(a.examId, ex.id) && a.status === 'submitted' && Array.isArray(a.layout) && Array.isArray(a.answers));
+  if (!subs.length) {
+    $('#analyticsBody').innerHTML = '<div class="empty">لا توجد تسليمات مكتملة لهذا الامتحان لتحليلها بعد.</div>';
+    return;
+  }
+  $('#analyticsBody').innerHTML = ex.questions.map((q, idx) => {
+    let totalSeen = 0, correctCount = 0;
+    subs.forEach(s => {
+      const pos = s.layout.findIndex(item => sameId(item.q, q.id));
+      if (pos !== -1) {
+        totalSeen++;
+        const chosen = s.answers[pos];
+        if (chosen !== null && s.layout[pos].o[chosen] === q.correct) correctCount++;
+      }
+    });
+    const rate = totalSeen ? Math.round((correctCount / totalSeen) * 100) : 0;
+    const barCls = rate >= 70 ? '' : rate >= 40 ? 'mid' : 'low';
+    return `<div class="student-q" style="margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;gap:10px;font-size:14px">
+        <strong>${idx + 1}. ${esc(q.text)}</strong>
+        <span class="tag ${rate >= 50 ? 'live' : 'bad'}" dir="ltr">${rate}% (${correctCount}/${totalSeen})</span>
+      </div>
+      <div class="an-bar-wrap"><div class="an-bar ${barCls}" style="width:${rate}%"></div></div>
+    </div>`;
+  }).join('');
+}
 // ---------- محرر الامتحان ----------
 let qUid = 0;
 function addQuestion(d = {}) {
@@ -308,6 +504,7 @@ function openExam(e) {
     el['title'].value = e.title; el['code'].value = e.code; el['duration'].value = e.duration; el['status'].value = e.status;
     el['max_attempts'].value = e.max_attempts; el['opens_at'].value = toLocalInput(e.opens_at); el['closes_at'].value = toLocalInput(e.closes_at);
     el['shuffle_questions'].checked = e.shuffle_questions; el['shuffle_options'].checked = e.shuffle_options;
+    el['show_answers'].checked = Boolean(e.show_answers);
     const sel = $('#gradeSelect'); if (![...sel.options].some(o => o.value === e.grade)) sel.add(new Option(e.grade, e.grade)); sel.value = e.grade;
     e.questions.forEach(addQuestion);
   } else { addQuestion(); addQuestion() }
@@ -327,10 +524,12 @@ $('#examForm').addEventListener('submit', async ev => {
   const opens = f.get('opens_at') ? new Date(f.get('opens_at')) : null, closes = f.get('closes_at') ? new Date(f.get('closes_at')) : null;
   if (opens && closes && closes <= opens) { toast('موعد الإغلاق يجب أن يكون بعد موعد الفتح'); return }
   const examData = {
+    
     title: f.get('title').trim(), grade: f.get('grade'), duration: Number(f.get('duration')),
     code: f.get('code').trim().toUpperCase(), status: f.get('status'), max_attempts: Math.max(1, Number(f.get('max_attempts')) || 1),
     opens_at: opens ? opens.toISOString() : null, closes_at: closes ? closes.toISOString() : null,
     shuffle_questions: f.has('shuffle_questions'), shuffle_options: f.has('shuffle_options')
+    show_answers: f.has('show_answers')
   };
   const btn = $('#saveExam'); btn.disabled = true;
   try {
