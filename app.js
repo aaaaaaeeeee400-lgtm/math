@@ -332,7 +332,7 @@ async function loadData() {
   }));
   state.attempts = (at.data || []).map(a => ({
     examId: a.exam_id, student: a.student_name, examTitle: a.exams?.title || 'امتحان محذوف',
-    score: a.score, total: a.total, percent: a.percent, date: a.submitted_at || a.created_at || a.started_at, status: a.status || 'submitted'
+    score: a.score, total: a.total, percent: a.percent, date: a.submitted_at || a.created_at || a.started_at, status: a.status || 'submitted',
     layout: a.layout, answers: a.answers,
   })).sort((x, y) => new Date(y.date) - new Date(x.date));
   render();
