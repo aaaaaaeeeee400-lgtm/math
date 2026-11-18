@@ -1,4 +1,4 @@
-ٍconst SUPABASE_URL = 'https://jozmawngshyoleulikgz.supabase.co';
+const SUPABASE_URL = 'https://jozmawngshyoleulikgz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_UhMsUc8MRGKcoKYB9bu11w_-f0XBGIw';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
