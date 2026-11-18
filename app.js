@@ -528,7 +528,7 @@ $('#examForm').addEventListener('submit', async ev => {
     title: f.get('title').trim(), grade: f.get('grade'), duration: Number(f.get('duration')),
     code: f.get('code').trim().toUpperCase(), status: f.get('status'), max_attempts: Math.max(1, Number(f.get('max_attempts')) || 1),
     opens_at: opens ? opens.toISOString() : null, closes_at: closes ? closes.toISOString() : null,
-    shuffle_questions: f.has('shuffle_questions'), shuffle_options: f.has('shuffle_options')
+    shuffle_questions: f.has('shuffle_questions'), shuffle_options: f.has('shuffle_options'),
     show_answers: f.has('show_answers')
   };
   const btn = $('#saveExam'); btn.disabled = true;
