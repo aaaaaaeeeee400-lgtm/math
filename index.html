@@ -69,14 +69,35 @@
           <small id="examProgressText"></small>
         </div>
       </div>
+
       <div class="run-body">
-        <div id="activeQuestionsList"></div>
-        <button type="button" class="btn btn-primary btn-block btn-lg" id="submitStudentExam"><i data-ic="check"></i> تسليم الإجابات</button>
+        <!-- خريطة أرقام الأسئلة للتنقل السريع -->
+        <div class="q-nav-wrap">
+          <div class="q-nav-legend">
+            <span><i class="dot ans"></i> مجاب</span>
+            <span><i class="dot flag"></i> مؤجل للمراجعة</span>
+            <span><i class="dot"></i> غير مجاب</span>
+          </div>
+          <div class="q-nav-grid" id="qNavGrid"></div>
+        </div>
+
+        <!-- حاوية السؤال الواحد -->
+        <div id="singleQuestionBox"></div>
+
+        <!-- أزرار التحكم بالسؤال -->
+        <div class="q-controls">
+          <button type="button" class="btn btn-outline" id="prevQBtn"><i data-ic="arrowRight"></i> السابق</button>
+          <button type="button" class="btn btn-outline btn-flag" id="flagQBtn"><i data-ic="flag"></i> <span>تأجيل السؤال</span></button>
+          <button type="button" class="btn btn-primary" id="nextQBtn">التالي <i data-ic="arrowLeft"></i></button>
+        </div>
+
+        <div class="submit-box">
+          <button type="button" class="btn btn-gold btn-block btn-lg" id="submitStudentExam"><i data-ic="check"></i> إنهاء وتسليم الامتحان</button>
+        </div>
       </div>
     </div>
     <div id="studentResult" class="hidden run-body"></div>
   </div>
-
   <!-- 3) لوحة تحكم الأستاذ -->
   <div class="app-shell hidden" id="teacherDashboard">
     <aside class="sidebar" id="sidebar">
@@ -131,8 +152,27 @@
         <div id="examList" class="exam-grid"></div>
       </section>
 
-      <section class="view" id="resultsView">
-        <div class="section-heading"><div><h3>نتائج الطلاب</h3><p>الدرجات المسجلة من قبل الطلاب</p></div><button class="btn btn-outline" id="exportCsv"><i data-ic="download"></i> تصدير CSV</button></div>
+     <section class="view" id="resultsView">
+        <div class="section-heading">
+          <div><h3>نتائج الطلاب</h3><p>الدرجات المسجلة من قبل الطلاب مع إمكانية البحث والتحليل</p></div>
+          <div class="head-btns">
+            <button class="btn btn-outline" id="openAnalyticsBtn"><i data-ic="chart"></i> تحليل الأسئلة</button>
+            <button class="btn btn-outline" id="exportCsv"><i data-ic="download"></i> تصدير CSV</button>
+          </div>
+        </div>
+        <!-- شريط البحث والفلترة -->
+        <div class="filter-bar">
+          <div class="search-box">
+            <i data-ic="search"></i>
+            <input type="search" id="searchStudent" placeholder="ابحث باسم الطالب...">
+          </div>
+          <select id="filterExam"><option value="">كل الامتحانات</option></select>
+          <select id="filterStatus">
+            <option value="">كل الحالات</option>
+            <option value="submitted">مسلَّم</option>
+            <option value="expired">انتهى الوقت</option>
+          </select>
+        </div>
         <div class="table-card" id="resultsTable"></div>
       </section>
 
@@ -207,10 +247,17 @@
           <select name="status"><option value="published">عام (متاح للطلاب)</option><option value="draft">خاص (مسودة مخفية)</option></select>
         </label>
         <div class="checks">
+          <label class="check"><input type="checkbox" name="show_answers"> السماح للطالب بمراجعة الإجابات الصحيحة بعد التسليم</label>
           <label class="check"><input type="checkbox" name="shuffle_questions" checked> خلط ترتيب الأسئلة لكل طالب</label>
           <label class="check"><input type="checkbox" name="shuffle_options" checked> خلط ترتيب الخيارات (تتغير مكان الإجابة الصحيحة)</label>
         </div>
-        <div class="questions-head"><h3>الأسئلة</h3><button type="button" class="btn btn-outline btn-small" id="addQuestion"><i data-ic="plus"></i> إضافة سؤال</button></div>
+        <div class="questions-head">
+          <h3>الأسئلة</h3>
+          <div class="head-btns">
+            <button type="button" class="btn btn-outline btn-small" id="openBulkImport"><i data-ic="upload"></i> استيراد نصي</button>
+            <button type="button" class="btn btn-outline btn-small" id="addQuestion"><i data-ic="plus"></i> إضافة سؤال</button>
+          </div>
+        </div>
         <div id="questionFields"></div>
         <div class="modal-actions"><button type="button" class="btn btn-outline" data-close="examModal">إلغاء</button><button class="btn btn-primary" type="submit" id="saveExam">حفظ الامتحان</button></div>
       </form>
@@ -226,7 +273,29 @@
       <div class="modal-actions"><button type="button" class="btn btn-outline" data-close="previewModal">إغلاق</button><button type="button" class="btn btn-primary" id="previewEdit"><i data-ic="edit"></i> تعديل الامتحان</button></div>
     </div>
   </div>
+<!-- نافذة استيراد الأسئلة النصي -->
+  <div class="modal-backdrop" id="importModal">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-head"><div><span class="eyebrow">إضافة سريعة</span><h2>استيراد أسئلة من نص</h2></div><button class="icon-btn" data-close="importModal"><i data-ic="x"></i></button></div>
+      <p class="hint" style="margin-bottom:10px">اكتب كل سؤال متبوعاً بـ 4 خيارات، وضع نجمة <b>*</b> قبل الإجابة الصحيحة، واترك سطراً فارغاً بين كل سؤال وآخر:</p>
+      <textarea id="bulkText" rows="9" placeholder="ما ناتج 5 × 6 ؟&#10;25&#10;*30&#10;35&#10;40&#10;&#10;الجذر التربيعي للعدد 49 هو:&#10;*7&#10;6&#10;8&#10;9"></textarea>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" data-close="importModal">إلغاء</button>
+        <button type="button" class="btn btn-primary" id="runBulkImport">إدراج الأسئلة</button>
+      </div>
+    </div>
+  </div>
 
+  <!-- نافذة تحليل الأسئلة -->
+  <div class="modal-backdrop" id="analyticsModal">
+    <div class="modal">
+      <div class="modal-head"><div><span class="eyebrow">إحصائيات الأداء</span><h2>تحليل صعوبة الأسئلة</h2></div><button class="icon-btn" data-close="analyticsModal"><i data-ic="x"></i></button></div>
+      <label>اختر الامتحان للتحليل
+        <select id="analyticsExamSelect"></select>
+      </label>
+      <div id="analyticsBody"></div>
+    </div>
+  </div>
   <div class="toast" id="toast" role="status"></div>
 </body>
 </html>
