@@ -1,4 +1,4 @@
-const SUPABASE_URL = 'https://jozmawngshyoleulikgz.supabase.co';
+ٍconst SUPABASE_URL = 'https://jozmawngshyoleulikgz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_UhMsUc8MRGKcoKYB9bu11w_-f0XBGIw';
 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -317,7 +317,7 @@ function go(view) {
 }
 
 async function loadData() {
-  const [ex, at] = await Promise.all(
+  const [ex, at] = await Promise.all([
     supabaseClient.from('exams').select('*, questions(*)'),
     supabaseClient.from('attempts').select('*, exams(title)')
   ]);
