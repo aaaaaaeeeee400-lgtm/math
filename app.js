@@ -50,7 +50,7 @@ const ltr = v => `<bdi dir="ltr">${esc(v)}</bdi>`;
 const AR = /[\u0600-\u06FF]/;
 const isMathOnly = s => { s = String(s ?? ''); return !!s.trim() && !AR.test(s) && !s.includes('$') };
 function tex(t, display, ds) {
-  t = String(t).replace(/\\?%/g, '\\%');
+  t = String(t).replace(/[\u200B-\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '').replace(/\\?%/g, '\\%');
   if (!window.katex) return esc(t);
   try { return katex.renderToString((ds ? '\\displaystyle ' : '') + t, { throwOnError: false, displayMode: !!display, strict: 'ignore' }) } catch { return esc(t) }
 }
@@ -533,6 +533,13 @@ function openExam(e) {
   $('#examModal').classList.add('show');
 }
 
+function examSaveError(error) {
+  console.error('exam save error:', error);
+  if (error.code === '23505') toast('رمز الامتحان مستخدم مسبقاً، اختر رمزاً آخر');
+  else if (/default_stem|topic|stem|schema cache|column/i.test(error.message || '')) toast('قاعدة البيانات تحتاج تنفيذ phase3.sql أولاً (عمود ناقص)');
+  else toast('تعذّر الحفظ: ' + (error.message || 'خطأ غير معروف'));
+}
+
 $('#examForm').addEventListener('submit', async ev => {
   ev.preventDefault();
   const f = new FormData(ev.target);
@@ -558,7 +565,7 @@ $('#examForm').addEventListener('submit', async ev => {
   try {
     if (editingId != null) {
       const { error } = await supabaseClient.from('exams').update(examData).eq('id', editingId);
-      if (error) { toast('رمز الامتحان مستخدم مسبقاً أو حدث خطأ'); return }
+      if (error) { examSaveError(error); return }
       const old = state.exams.find(x => sameId(x.id, editingId))?.questions || [], keep = new Set(qs.filter(q => q.id).map(q => String(q.id)));
       const gone = old.filter(q => !keep.has(String(q.id))).map(q => q.id), ops = [];
       if (gone.length) ops.push(supabaseClient.from('questions').delete().in('id', gone));
@@ -566,7 +573,7 @@ $('#examForm').addEventListener('submit', async ev => {
       if ((await Promise.all(ops)).some(r => r.error)) { toast('تم حفظ الامتحان لكن تعذّر حفظ بعض الأسئلة، راجعها'); loadData(); return }
     } else {
       const { data: ins, error } = await supabaseClient.from('exams').insert([examData]).select().single();
-      if (error) { toast('رمز الامتحان مستخدم مسبقاً أو حدث خطأ'); return }
+      if (error) { examSaveError(error); return }
       const { error: qe } = await supabaseClient.from('questions').insert(qs.map(({ id, ...row }) => ({ ...row, exam_id: ins.id })));
       if (qe) { toast('تم إنشاء الامتحان لكن تعذّر حفظ الأسئلة، افتحه وعدّله'); loadData(); return }
     }
