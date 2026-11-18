@@ -323,17 +323,17 @@ async function loadData() {
   ]);
   if (ex.error || at.error) toast('تعذّر تحميل البيانات، تحقق من تنفيذ سكربت SQL');
   state.exams = (ex.data || []).map(e => ({
-    show_answers: Boolean(e.show_answers),
     id: e.id, title: e.title, grade: e.grade, duration: e.duration, code: e.code, status: e.status,
     max_attempts: e.max_attempts ?? 1, opens_at: e.opens_at, closes_at: e.closes_at,
     shuffle_questions: e.shuffle_questions !== false, shuffle_options: e.shuffle_options !== false,
+    show_answers: Boolean(e.show_answers),
     questions: (e.questions || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0))
       .map(q => ({ id: q.id, text: q.question_text, options: q.options, correct: q.correct_index }))
   }));
   state.attempts = (at.data || []).map(a => ({
-    layout: a.layout, answers: a.answers,
     examId: a.exam_id, student: a.student_name, examTitle: a.exams?.title || 'امتحان محذوف',
     score: a.score, total: a.total, percent: a.percent, date: a.submitted_at || a.created_at || a.started_at, status: a.status || 'submitted'
+    layout: a.layout, answers: a.answers,
   })).sort((x, y) => new Date(y.date) - new Date(x.date));
   render();
 }
