@@ -25,6 +25,8 @@
   </script>
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
@@ -61,12 +63,14 @@
           <div class="run-title">
             <span class="eyebrow" id="activeExamGrade"></span>
             <h2 id="activeExamTitle"></h2>
+            <span class="who"><i class="live-dot"></i> الطالب: <b id="activeStudent"></b></span>
           </div>
           <div class="timer" id="examTimer"><i data-ic="clock"></i><b dir="ltr">00:00</b></div>
         </div>
         <div class="run-bar-in run-progress">
           <div class="progress"><i id="examProgressBar"></i></div>
           <small id="examProgressText"></small>
+          <span class="qcount" id="qCounter"></span>
         </div>
       </div>
 
@@ -246,6 +250,7 @@
         <label>الظهور للطلاب
           <select name="status"><option value="published">عام (متاح للطلاب)</option><option value="draft">خاص (مسودة مخفية)</option></select>
         </label>
+        <label>صيغة السؤال العامة (اختياري)<input name="default_stem" id="defaultStem" dir="auto" maxlength="200" placeholder="مثال: أوجد ناتج العملية الحسابية التالية:"><span class="mx-prev hidden"></span><small class="hint">تظهر فوق مسألة كل سؤال، ويمكن تغييرها لسؤال بعينه.</small></label>
         <div class="checks">
           <label class="check"><input type="checkbox" name="show_answers"> السماح للطالب بمراجعة الإجابات الصحيحة بعد التسليم</label>
           <label class="check"><input type="checkbox" name="shuffle_questions" checked> خلط ترتيب الأسئلة لكل طالب</label>
@@ -258,6 +263,7 @@
             <button type="button" class="btn btn-outline btn-small" id="addQuestion"><i data-ic="plus"></i> إضافة سؤال</button>
           </div>
         </div>
+        <div class="math-bar" id="mathBar"><span class="math-bar-title">أدوات المعادلات: اضغط داخل حقل المسألة أو أحد الخيارات ثم اختر الرمز (حدّد رقماً قبل الضغط ليدخل داخل الكسر أو الجذر). وفي جملة عربية اكتب المعادلة بين علامتي <bdi dir="ltr">$ ... $</bdi></span><div class="math-bar-btns" id="mathBarBtns"></div></div>
         <div id="questionFields"></div>
         <div class="modal-actions"><button type="button" class="btn btn-outline" data-close="examModal">إلغاء</button><button class="btn btn-primary" type="submit" id="saveExam">حفظ الامتحان</button></div>
       </form>
