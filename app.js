@@ -45,6 +45,32 @@ const hydrateIcons = () => $$('[data-ic]:empty').forEach(el => el.innerHTML = ic
 // ---------- أدوات ----------
 function esc(v) { return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
 const ltr = v => `<bdi dir="ltr">${esc(v)}</bdi>`;
+
+// ---------- عرض الرياضيات (KaTeX) ----------
+const AR = /[\u0600-\u06FF]/;
+const isMathOnly = s => { s = String(s ?? ''); return !!s.trim() && !AR.test(s) && !s.includes('$') };
+function tex(t, display, ds) {
+  t = String(t).replace(/\\?%/g, '\\%');
+  if (!window.katex) return esc(t);
+  try { return katex.renderToString((ds ? '\\displaystyle ' : '') + t, { throwOnError: false, displayMode: !!display, strict: 'ignore' }) } catch { return esc(t) }
+}
+// نص عربي يحوي معادلات بين $...$ (أو $$...$$ لمعادلة في سطر مستقل)
+function mxMixed(raw) {
+  return String(raw ?? '').split(/(\$\$[\s\S]+?\$\$|\$[^$]+?\$)/g).map(p => {
+    if (p.length > 4 && p.startsWith('$$') && p.endsWith('$$')) return tex(p.slice(2, -2), true);
+    if (p.length > 2 && p.startsWith('$') && p.endsWith('$')) return tex(p.slice(1, -1));
+    return esc(p).replace(/\n/g, '<br>');
+  }).join('');
+}
+// حقل المسألة/الخيار: إن لم يحوِ حروفاً عربية ولا $ فهو معادلة كاملة
+function mx(raw) {
+  raw = String(raw ?? '').trim(); if (!raw) return '';
+  return isMathOnly(raw) ? `<span class="mx" dir="ltr">${tex(raw, false, true)}</span>` : `<span class="mx-text">${mxMixed(raw)}</span>`;
+}
+const qHead = (q, stem, extra = '', num = '') => `
+  ${num || q.topic || extra ? `<div class="q-top"><span class="q-top-r">${num ? `<span class="qn">${num}</span>` : ''}${q.topic ? `<span class="topic-chip">${esc(q.topic)}</span>` : ''}</span>${extra}</div>` : ''}
+  <div class="q-stem-box">${stem ? `<p class="q-stem">${mxMixed(stem)}</p>` : ''}<div class="q-expr${isMathOnly(q.text) ? ' is-math' : ''}">${mx(q.text)}</div></div>`;
+const optInner = (o, j) => `<span class="opt-letter">${LETTERS[j]}</span><span class="opt-val${isMathOnly(o) ? ' is-math' : ''}">${mx(o)}</span>`;
 const fmtDate = d => { if (!d) return '—'; const x = new Date(d); return isNaN(x) ? '—' : x.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) };
 const toLocalInput = iso => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16) };
 const sameId = (a, b) => String(a) === String(b);
@@ -147,7 +173,7 @@ function startExam(d, name) {
 
   show('studentExamArea');
   $('#runWrap').classList.remove('hidden'); $('#studentResult').classList.add('hidden');
-  $('#activeExamGrade').textContent = d.exam.grade; $('#activeExamTitle').textContent = d.exam.title;
+  $('#activeExamGrade').textContent = d.exam.grade; $('#activeExamTitle').textContent = d.exam.title; $('#activeStudent').textContent = name;
 
   renderQuestionNav();
   renderCurrentQuestion();
@@ -180,19 +206,12 @@ function renderCurrentQuestion() {
   const i = runner.idx, q = runner.qs[i], isFlagged = runner.flagged[i];
   $('#singleQuestionBox').innerHTML = `
     <div class="student-q single-q-card ${runner.answers[i] !== null ? 'answered' : ''}">
-      <div>
-        ${isFlagged ? `<div class="q-badge-flagged">${ico('flag')} مؤجل للمراجعة</div>` : ''}
-        <h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>
-      </div>
-      <div>
-        ${q.options.map((o, j) => `
-          <label class="student-option">
-            <input type="radio" name="currQ" value="${j}" ${runner.answers[i] === j ? 'checked' : ''}>
-            <span class="opt-letter">${LETTERS[j]}</span>
-            <span>${esc(o)}</span>
-          </label>`).join('')}
+      ${qHead(q, q.stem, isFlagged ? `<span class="q-badge-flagged">${ico('flag')} مؤجل للمراجعة</span>` : '')}
+      <div class="opt-grid">
+        ${q.options.map((o, j) => `<label class="student-option opt-card"><input type="radio" name="currQ" value="${j}" ${runner.answers[i] === j ? 'checked' : ''}>${optInner(o, j)}<i class="opt-dot"></i></label>`).join('')}
       </div>
     </div>`;
+  $('#qCounter').innerHTML = `السؤال ${ltr(i + 1)} من ${ltr(runner.qs.length)}`;
 
   $('#prevQBtn').disabled = i === 0;
   $('#nextQBtn').disabled = i === runner.qs.length - 1;
@@ -277,15 +296,12 @@ function showResult(r, name, qs) {
   if (r.show_answers && Array.isArray(r.review) && qs) {
     reviewHtml = `<div class="review-list"><h3>مراجعة إجاباتك</h3>` + qs.map((q, i) => {
       const rev = r.review[i] || {};
-      return `<div class="student-q">
-        <h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>
-        ${q.options.map((o, j) => {
-          const isCorr = j === rev.correct, isUser = j === rev.chosen;
-          const optCls = isCorr ? 'correct' : (isUser ? 'wrong' : '');
-          const badge = isCorr ? `<em>${ico('check')} الصحيحة</em>` : (isUser ? `<em>${ico('x')} إجابتك</em>` : '');
-          return `<div class="student-option ${optCls}"><span class="opt-letter">${LETTERS[j]}</span><span>${esc(o)}</span>${badge}</div>`;
-        }).join('')}
-      </div>`;
+      return `<div class="student-q">${qHead(q, q.stem, '', i + 1)}<div class="opt-grid">${q.options.map((o, j) => {
+        const isCorr = j === rev.correct, isUser = j === rev.chosen;
+        const optCls = isCorr ? 'correct' : (isUser ? 'wrong' : '');
+        const badge = isCorr ? `<em>${ico('check')} الصحيحة</em>` : (isUser ? `<em>${ico('x')} إجابتك</em>` : '');
+        return `<div class="student-option opt-card static ${optCls}">${optInner(o, j)}${badge}</div>`;
+      }).join('')}</div></div>`;
     }).join('') + `</div>`;
   }
 
@@ -326,9 +342,9 @@ async function loadData() {
     id: e.id, title: e.title, grade: e.grade, duration: e.duration, code: e.code, status: e.status,
     max_attempts: e.max_attempts ?? 1, opens_at: e.opens_at, closes_at: e.closes_at,
     shuffle_questions: e.shuffle_questions !== false, shuffle_options: e.shuffle_options !== false,
-    show_answers: Boolean(e.show_answers),
+    show_answers: Boolean(e.show_answers), default_stem: e.default_stem || '',
     questions: (e.questions || []).slice().sort((a, b) => (a.position || 0) - (b.position || 0))
-      .map(q => ({ id: q.id, text: q.question_text, options: q.options, correct: q.correct_index }))
+      .map(q => ({ id: q.id, text: q.question_text, options: q.options, correct: q.correct_index, topic: q.topic || '', stem: q.stem || '' }))
   }));
   state.attempts = (at.data || []).map(a => ({
     examId: a.exam_id, student: a.student_name, examTitle: a.exams?.title || 'امتحان محذوف',
@@ -469,7 +485,7 @@ function renderAnalytics() {
     const barCls = rate >= 70 ? '' : rate >= 40 ? 'mid' : 'low';
     return `<div class="student-q" style="margin-bottom:10px">
       <div style="display:flex;justify-content:space-between;gap:10px;font-size:14px">
-        <strong>${idx + 1}. ${esc(q.text)}</strong>
+        <strong>${idx + 1}. ${mx(q.text)}</strong>
         <span class="tag ${rate >= 50 ? 'live' : 'bad'}" dir="ltr">${rate}% (${correctCount}/${totalSeen})</span>
       </div>
       <div class="an-bar-wrap"><div class="an-bar ${barCls}" style="width:${rate}%"></div></div>
@@ -483,14 +499,19 @@ function addQuestion(d = {}) {
   div.className = 'question-editor'; if (d.id != null) div.dataset.id = d.id;
   div.innerHTML = `
     <div class="question-editor-head"><span class="qnum"></span><button type="button" class="text-btn remove-q">${ico('trash')} حذف السؤال</button></div>
-    <label>نص السؤال<input class="q-text" required placeholder="اكتب السؤال هنا" value="${esc(d.text || '')}"></label>
+    <div class="form-row">
+      <label>اسم الدرس (اختياري)<input class="q-topic" maxlength="80" placeholder="مثال: جمع الأعداد الصحيحة" value="${esc(d.topic || '')}"></label>
+      <label>صيغة هذا السؤال (اختياري)<input class="q-stem" dir="auto" placeholder="اتركها فارغة لاستخدام الصيغة العامة" value="${esc(d.stem || '')}"><span class="mx-prev hidden"></span></label>
+    </div>
+    <label>المسألة<input class="q-text" required dir="auto" placeholder="مثال: (-7)+(-5)=?" value="${esc(d.text || '')}"><span class="mx-prev hidden"></span></label>
     <div class="opts-hint">اختر الدائرة بجانب الإجابة الصحيحة</div>
-    ${[0, 1, 2, 3].map(i => `<div class="opt-row"><input type="radio" name="c${uid}" value="${i}" ${(d.correct ?? 0) === i ? 'checked' : ''} aria-label="الإجابة الصحيحة"><span class="opt-letter">${LETTERS[i]}</span><input class="q-opt" required placeholder="الخيار ${LETTERS[i]}" value="${esc(d.options?.[i] || '')}"></div>`).join('')}`;
+    ${[0, 1, 2, 3].map(i => `<div class="opt-row"><input type="radio" name="c${uid}" value="${i}" ${(d.correct ?? 0) === i ? 'checked' : ''} aria-label="الإجابة الصحيحة"><span class="opt-letter">${LETTERS[i]}</span><div class="opt-field"><input class="q-opt" required dir="auto" placeholder="الخيار ${LETTERS[i]}" value="${esc(d.options?.[i] || '')}"><span class="mx-prev hidden"></span></div></div>`).join('')}`;
   div.querySelector('.remove-q').onclick = () => {
     if ($$('.question-editor').length <= 1) { toast('يجب أن يحتوي الامتحان على سؤال واحد على الأقل'); return }
     div.remove(); renumber();
   };
   $('#questionFields').append(div); renumber();
+  div.querySelectorAll('.q-stem,.q-text,.q-opt').forEach(refreshPrev);
 }
 const renumber = () => $$('.question-editor .qnum').forEach((x, i) => x.textContent = 'السؤال ' + (i + 1));
 
@@ -504,10 +525,11 @@ function openExam(e) {
     el['title'].value = e.title; el['code'].value = e.code; el['duration'].value = e.duration; el['status'].value = e.status;
     el['max_attempts'].value = e.max_attempts; el['opens_at'].value = toLocalInput(e.opens_at); el['closes_at'].value = toLocalInput(e.closes_at);
     el['shuffle_questions'].checked = e.shuffle_questions; el['shuffle_options'].checked = e.shuffle_options;
-    el['show_answers'].checked = Boolean(e.show_answers);
+    el['show_answers'].checked = Boolean(e.show_answers); el['default_stem'].value = e.default_stem || '';
     const sel = $('#gradeSelect'); if (![...sel.options].some(o => o.value === e.grade)) sel.add(new Option(e.grade, e.grade)); sel.value = e.grade;
     e.questions.forEach(addQuestion);
   } else { addQuestion(); addQuestion() }
+  refreshPrev($('#defaultStem'));
   $('#examModal').classList.add('show');
 }
 
@@ -517,6 +539,7 @@ $('#examForm').addEventListener('submit', async ev => {
   const qs = $$('.question-editor').map((q, i) => ({
     id: q.dataset.id ?? null, position: i,
     question_text: q.querySelector('.q-text').value.trim(),
+    topic: q.querySelector('.q-topic').value.trim() || null, stem: q.querySelector('.q-stem').value.trim() || null,
     options: [...q.querySelectorAll('.q-opt')].map(x => x.value.trim()),
     correct_index: Number(q.querySelector('input[type=radio]:checked')?.value ?? 0)
   }));
@@ -529,7 +552,7 @@ $('#examForm').addEventListener('submit', async ev => {
     code: f.get('code').trim().toUpperCase(), status: f.get('status'), max_attempts: Math.max(1, Number(f.get('max_attempts')) || 1),
     opens_at: opens ? opens.toISOString() : null, closes_at: closes ? closes.toISOString() : null,
     shuffle_questions: f.has('shuffle_questions'), shuffle_options: f.has('shuffle_options'),
-    show_answers: f.has('show_answers')
+    show_answers: f.has('show_answers'), default_stem: (f.get('default_stem') || '').trim() || null
   };
   const btn = $('#saveExam'); btn.disabled = true;
   try {
@@ -557,7 +580,7 @@ function openPreview(id) {
   $('#previewTitle').textContent = e.title; $('#previewEdit').dataset.edit = e.id;
   $('#previewMeta').innerHTML = `${tagPub(e)}<span class="tag">${esc(e.grade)}</span><span class="tag">${ico('clock')} ${ltr(e.duration)} دقيقة</span><span class="tag">${ico('repeat')} ${ltr(e.max_attempts)} محاولة</span><span class="tag">${ico('list')} ${ltr(e.questions.length)} أسئلة</span>`;
   $('#previewBody').innerHTML = `<div class="pv-note">هذه معاينة للمدرّس بترتيبك الأصلي مع تمييز الإجابة الصحيحة. ${e.shuffle_options || e.shuffle_questions ? 'في الامتحان الفعلي يُخلط الترتيب لكل طالب ولا تظهر الإجابة الصحيحة.' : ''}</div>` +
-    e.questions.map((q, i) => `<div class="student-q"><h4><span class="qn">${i + 1}</span><span>${esc(q.text)}</span></h4>${q.options.map((o, j) => `<div class="student-option ${j === q.correct ? 'correct' : ''}"><span class="opt-letter">${LETTERS[j]}</span><span>${esc(o)}</span>${j === q.correct ? `<em>${ico('check')} الصحيحة</em>` : ''}</div>`).join('')}</div>`).join('');
+    e.questions.map((q, i) => `<div class="student-q">${qHead(q, q.stem || e.default_stem, '', i + 1)}<div class="opt-grid">${q.options.map((o, j) => `<div class="student-option opt-card static ${j === q.correct ? 'correct' : ''}">${optInner(o, j)}${j === q.correct ? `<em>${ico('check')} الصحيحة</em>` : ''}</div>`).join('')}</div></div>`).join('');
   $('#previewModal').classList.add('show');
 }
 
@@ -657,3 +680,42 @@ hydrateIcons(); paintThemeIcons();
 try { const cached = JSON.parse(localStorage.getItem('brand') || 'null'); if (cached) brand = { ...DEFAULTS, ...cached } } catch { }
 applyColors(brand.primary_color, brand.accent_color); applyIdentity(brand);
 loadSettings(); checkAuth();
+
+// ---------- معاينة حيّة للمعادلات وأدوات الكتابة في المحرر ----------
+function refreshPrev(inp) {
+  const p = inp?.parentElement?.querySelector(':scope > .mx-prev'); if (!p) return;
+  const v = inp.value.trim(), isText = inp.classList.contains('q-stem') || inp.id === 'defaultStem';
+  p.innerHTML = v ? (isText ? mxMixed(v) : mx(v)) : ''; p.classList.toggle('hidden', !v);
+}
+document.addEventListener('input', e => { if (e.target.matches?.('.q-text,.q-opt,.q-stem,#defaultStem')) refreshPrev(e.target) });
+
+const MATH_BTNS = [
+  ['\\frac{§}{}', '\\frac{a}{b}', 'كسر'], ['\\sqrt{§}', '\\sqrt{x}', 'جذر تربيعي'], ['\\sqrt[3]{§}', '\\sqrt[3]{x}', 'جذر تكعيبي'],
+  ['^{2}§', 'x^{2}', 'تربيع (أس 2)'], ['^{3}§', 'x^{3}', 'تكعيب (أس 3)'], ['^{§}', 'x^{n}', 'أس'], ['_{§}', 'x_{n}', 'رمز سفلي'],
+  ['\\left(§\\right)', '(\\,)', 'أقواس كبيرة'], ['\\left|§\\right|', '|x|', 'قيمة مطلقة'],
+  ['\\pi', '\\pi', 'π'], ['\\times', '\\times', 'ضرب'], ['\\div', '\\div', 'قسمة'], ['\\pm', '\\pm', 'موجب أو سالب'],
+  ['\\leq', '\\leq', 'أصغر من أو يساوي'], ['\\geq', '\\geq', 'أكبر من أو يساوي'], ['\\neq', '\\neq', 'لا يساوي'], ['^{\\circ}', '^{\\circ}', 'درجة']
+];
+let mathField = null;
+document.addEventListener('focusin', e => { if (e.target.matches?.('.q-text,.q-opt,.q-stem,#defaultStem')) mathField = e.target });
+function insertMath(tpl) {
+  const f = mathField;
+  if (!f || !document.contains(f)) { toast('اضغط داخل حقل المسألة أو أحد الخيارات أولاً'); return }
+  const v = f.value, s = f.selectionStart ?? v.length, e = f.selectionEnd ?? s, sel = v.slice(s, e);
+  const inMath = ((v.slice(0, s).match(/\$/g) || []).length % 2) === 1;
+  const wrap = !inMath && (f.classList.contains('q-stem') || f.id === 'defaultStem' || AR.test(v) || v.includes('$'));
+  const idx = tpl.indexOf('§'), isScript = /^[\^_]/.test(tpl);
+  let body, at;
+  if (isScript) { const t = tpl.replace('§', ''); body = sel + t; at = sel.length + (idx < 0 ? t.length : idx) }
+  else { body = tpl.replace('§', sel); at = idx < 0 ? body.length : idx + sel.length }
+  const ins = wrap ? '$' + body + '$' : body, pos = s + (wrap ? 1 : 0) + at;
+  f.setRangeText(ins, s, e, 'end'); f.focus(); f.setSelectionRange(pos, pos);
+  f.dispatchEvent(new Event('input', { bubbles: true }));
+}
+function initMathBar() {
+  const box = $('#mathBarBtns'); if (!box) return;
+  box.innerHTML = MATH_BTNS.map(([, l, title], i) => `<button type="button" data-mi="${i}" title="${title}" aria-label="${title}">${window.katex ? tex(l, false, true) : title}</button>`).join('');
+  box.addEventListener('mousedown', e => e.preventDefault());
+  box.addEventListener('click', e => { const b = e.target.closest('[data-mi]'); if (b) insertMath(MATH_BTNS[b.dataset.mi][0]) });
+}
+initMathBar();
