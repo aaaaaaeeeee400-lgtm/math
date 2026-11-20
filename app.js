@@ -142,16 +142,47 @@ function startError(d) {
   return 'حدث خطأ غير متوقع، حاول مرة أخرى';
 }
 
+// معرّف الجهاز: مساعد وليس ضماناً (يتغير إذا مُسحت بيانات المتصفح)
+function deviceId() {
+  try {
+    let id = localStorage.getItem('device_id');
+    if (!/^[A-Za-z0-9-]{8,64}$/.test(id || '')) {
+      id = crypto.randomUUID ? crypto.randomUUID()
+        : Date.now().toString(36) + Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
+      localStorage.setItem('device_id', id);
+    }
+    return id;
+  } catch { return null }
+}
+
 $('#studentEntryForm').addEventListener('submit', async e => {
   e.preventDefault();
   const name = $('#entryName').value.trim().replace(/\s+/g, ' '), code = $('#entryCode').value.trim().toUpperCase();
   if (name.split(' ').length < 3) { toast('يرجى كتابة الاسم الثلاثي الكامل'); return }
   const btn = e.target.querySelector('button[type=submit]'); btn.disabled = true;
-  const { data, error } = await supabaseClient.rpc('start_attempt', { p_code: code, p_name: name });
-  btn.disabled = false;
-  if (error || !data) { toast('تعذّر الاتصال بالخادم، حاول مرة أخرى'); return }
-  if (data.error) { toast(startError(data)); return }
-  startExam(data, name);
+  const dev = deviceId();
+  try {
+    // 1) هل أجرى الطالب هذا الامتحان من قبل؟ (قبل بدء المؤقت)
+    let prev = null;
+    try {
+      const r = await supabaseClient.rpc('check_previous', { p_code: code, p_name: name, p_device: dev });
+      if (!r.error) prev = r.data;
+    } catch { }
+
+    if (prev?.kind === 'previous') {
+      const info = `سبق أن أجريت هذا الامتحان بتاريخ ${fmtDate(prev.at)} وكانت درجتك ${prev.score} / ${prev.total} (${prev.percent}%)${prev.expired ? ' - انتهى الوقت قبل التسليم' : ''}.`;
+      if (prev.remaining <= 0) { alert(`${info}\nاستنفدت عدد المحاولات المسموحة (${prev.max}).`); return }
+      if (!confirm(`${info}\nالمحاولات المتبقية: ${prev.remaining}.\nهل تريد بدء محاولة جديدة الآن؟`)) return;
+    } else if (prev?.kind === 'other_name') {
+      if (!confirm('تنبيه: سبق استخدام هذا الجهاز في هذا الامتحان باسم مختلف.\nهل تريد المتابعة؟')) return;
+    }
+
+    // 2) بدء المحاولة
+    const { data, error } = await supabaseClient.rpc('start_attempt', { p_code: code, p_name: name, p_device: dev });
+    if (error || !data) { toast('تعذّر الاتصال بالخادم، حاول مرة أخرى'); return }
+    if (data.error) { toast(startError(data)); return }
+    startExam(data, name);
+  } finally { btn.disabled = false }
 });
 
 function startExam(d, name) {
